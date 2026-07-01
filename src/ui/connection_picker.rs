@@ -3,13 +3,14 @@ use gpui::*;
 use gpui_component::{ActiveTheme, v_flex};
 
 use crate::app::AppShell;
+use crate::pg::ConnectionProfile;
 use crate::ui::shared::{label, muted};
 
 pub(crate) fn render(cx: &mut Context<AppShell>) -> impl IntoElement {
     div()
         .absolute()
-        .top(px(31.))
-        .left(px(74.))
+        .top(px(66.))
+        .left(px(12.))
         .w(px(340.))
         .rounded(px(8.))
         .border_1()
@@ -62,9 +63,10 @@ fn connection_option(
         .gap_2()
         .rounded(px(6.))
         .cursor_pointer()
-        .hover(|el| el.bg(gpui::white().opacity(0.06)))
+        .hover(|el| el.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.connection_picker_open = false;
+            this.connect(ConnectionProfile::local_dev(), cx);
             this.status_message = format!("Selected connection {}", name).into();
             cx.notify();
         }))

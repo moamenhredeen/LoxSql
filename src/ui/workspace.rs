@@ -2,10 +2,17 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
-use crate::app::AppShell;
 use crate::fonts::JETBRAINS_MONO;
 use crate::pg::{QueryStatus, ResultColumn, ResultSetState, SessionStatus, WorkspaceTab};
-use crate::ui::shared::{action_button, muted};
+use crate::ui::shared::muted;
+
+#[derive(Clone)]
+pub(crate) enum WorkspaceEvent {
+    TabSelected { index: usize, title: String },
+    RunRequested { sql: String },
+    CancelRequested,
+    ExplainRequested { sql: String },
+}
 
 pub(crate) struct Workspace {
     tabs: Vec<WorkspaceTab>,
@@ -14,6 +21,8 @@ pub(crate) struct Workspace {
     result: ResultSetState,
     session: SessionStatus,
 }
+
+impl EventEmitter<WorkspaceEvent> for Workspace {}
 
 impl Workspace {
     pub(crate) fn sample() -> Self {
@@ -29,7 +38,7 @@ impl Workspace {
             ],
             active_tab: 0,
             editor: SqlEditorState::sample(),
-            result: ResultSetState::sample(),
+            result: ResultSetState::empty(),
             session: SessionStatus {
                 profile_id: Some("local-dev".into()),
                 database: Some("app_db".into()),
@@ -42,7 +51,25 @@ impl Workspace {
         }
     }
 
-    pub(crate) fn render(&self, cx: &mut Context<AppShell>) -> impl IntoElement {
+    pub(crate) fn current_sql(&self) -> String {
+        self.editor.text.to_string()
+    }
+
+    pub(crate) fn set_query_status(&mut self, status: QueryStatus) {
+        self.session.query = status;
+    }
+
+    pub(crate) fn set_result(&mut self, columns: Vec<ResultColumn>, rows: Vec<Vec<String>>) {
+        self.result = ResultSetState { columns, rows };
+    }
+
+    pub(crate) fn transaction_status(&self) -> &str {
+        &self.session.transaction
+    }
+}
+
+impl Render for Workspace {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .flex_1()
             .min_w(px(0.))
@@ -57,7 +84,10 @@ impl Workspace {
             )
     }
 
-    fn render_tabs(&self, cx: &mut Context<AppShell>) -> impl IntoElement {
+}
+
+impl Workspace {
+    fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .h(px(31.))
             .border_b_1()
@@ -69,7 +99,7 @@ impl Workspace {
             .child(div().flex_1())
     }
 
-    fn render_tab(&self, ix: usize, cx: &mut Context<AppShell>) -> impl IntoElement {
+    fn render_tab(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let title = self
             .tabs
             .get(ix)
@@ -89,10 +119,13 @@ impl Workspace {
             .border_color(cx.theme().border)
             .text_sm()
             .cursor_pointer()
-            .hover(|el| el.bg(gpui::white().opacity(0.05)))
+            .hover(|el| el.bg(cx.theme().secondary_hover))
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.workspace.active_tab = ix;
-                this.status_message = format!("Opened {}", click_title).into();
+                this.active_tab = ix;
+                cx.emit(WorkspaceEvent::TabSelected {
+                    index: ix,
+                    title: click_title.clone(),
+                });
                 cx.notify();
             }))
             .when(ix == self.active_tab, |el| {
@@ -110,18 +143,45 @@ impl Workspace {
             )
     }
 
-    fn render_query_toolbar(&self, cx: &mut Context<AppShell>) -> impl IntoElement {
+    fn render_query_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .h(px(32.))
             .px_3()
             .gap_2()
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(action_button("Run", cx))
-            .child(action_button("Stop", cx))
-            .child(action_button("Explain", cx))
+            .child(self.action_button("Run", cx))
+            .child(self.action_button("Stop", cx))
+            .child(self.action_button("Explain", cx))
             .child(div().flex_1())
             .child(muted(self.session.query.summary()))
+    }
+
+    fn action_button(&self, text: &str, cx: &mut Context<Self>) -> impl IntoElement {
+        let action = text.to_string();
+
+        div()
+            .id(format!("action-button-{action}"))
+            .px_2()
+            .py_1()
+            .rounded(px(5.))
+            .text_sm()
+            .cursor_pointer()
+            .hover(|el| el.bg(cx.theme().secondary_hover))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                match action.as_str() {
+                    "Run" => cx.emit(WorkspaceEvent::RunRequested {
+                        sql: this.current_sql(),
+                    }),
+                    "Stop" => cx.emit(WorkspaceEvent::CancelRequested),
+                    "Explain" => cx.emit(WorkspaceEvent::ExplainRequested {
+                        sql: this.current_sql(),
+                    }),
+                    _ => {}
+                }
+                cx.notify();
+            }))
+            .child(text.to_string())
     }
 }
 
@@ -134,13 +194,13 @@ impl SqlEditorState {
     fn sample() -> Self {
         Self {
             text: ropey::Rope::from_str(
-                "select id, email, created_at\nfrom public.users\nwhere created_at > now() - interval '7 days'\norder by created_at desc;\n",
+                "select id,\n       'user-' || id::text as email,\n       now()::text as created_at\nfrom generate_series(1, 5) as id;\n",
             ),
             current_line: 0,
         }
     }
 
-    fn render(&self, cx: &mut Context<AppShell>) -> impl IntoElement {
+    fn render(&self, cx: &mut Context<Workspace>) -> impl IntoElement {
         v_flex()
             .h(px(260.))
             .min_h(px(180.))
@@ -161,7 +221,7 @@ impl SqlEditorState {
             .child(self.render_line(3, cx))
     }
 
-    fn render_line(&self, ix: usize, cx: &mut Context<AppShell>) -> impl IntoElement {
+    fn render_line(&self, ix: usize, cx: &mut Context<Workspace>) -> impl IntoElement {
         let line = self
             .text
             .get_line(ix)
@@ -195,6 +255,7 @@ impl SqlEditorState {
 }
 
 impl ResultSetState {
+    #[allow(dead_code)]
     pub(crate) fn sample() -> Self {
         Self {
             columns: vec![
@@ -222,7 +283,33 @@ impl ResultSetState {
         }
     }
 
-    fn render(&self, cx: &mut Context<AppShell>) -> impl IntoElement {
+    fn render(&self, cx: &mut Context<Workspace>) -> impl IntoElement {
+        if self.columns.is_empty() {
+            return v_flex()
+                .flex_1()
+                .min_h(px(0.))
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .child(
+                    div()
+                        .p_3()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Run a query to see results."),
+                );
+        }
+
+        let headers = self
+            .columns
+            .iter()
+            .map(|column| grid_header(column, cx).into_any_element())
+            .collect::<Vec<_>>();
+        let rows = self
+            .rows
+            .iter()
+            .map(|row| grid_row(row, cx).into_any_element())
+            .collect::<Vec<_>>();
+
         v_flex()
             .flex_1()
             .min_h(px(0.))
@@ -234,17 +321,13 @@ impl ResultSetState {
                     .bg(cx.theme().secondary)
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .child(grid_header(&self.columns[0], cx))
-                    .child(grid_header(&self.columns[1], cx))
-                    .child(grid_header(&self.columns[2], cx)),
+                    .children(headers),
             )
-            .child(grid_row(&self.rows[0], cx))
-            .child(grid_row(&self.rows[1], cx))
-            .child(grid_row(&self.rows[2], cx))
+            .children(rows)
     }
 }
 
-fn grid_header(column: &ResultColumn, cx: &mut Context<AppShell>) -> impl IntoElement {
+fn grid_header(column: &ResultColumn, cx: &mut Context<Workspace>) -> impl IntoElement {
     h_flex()
         .w(relative(0.333))
         .h_full()
@@ -256,17 +339,20 @@ fn grid_header(column: &ResultColumn, cx: &mut Context<AppShell>) -> impl IntoEl
         .child(muted(column.pg_type.clone()))
 }
 
-fn grid_row(row: &[String], cx: &mut Context<AppShell>) -> impl IntoElement {
+fn grid_row(row: &[String], cx: &mut Context<Workspace>) -> impl IntoElement {
+    let cells = row
+        .iter()
+        .map(|cell| grid_cell(cell, cx).into_any_element())
+        .collect::<Vec<_>>();
+
     h_flex()
         .h(px(30.))
         .border_b_1()
         .border_color(cx.theme().border)
-        .child(grid_cell(&row[0], cx))
-        .child(grid_cell(&row[1], cx))
-        .child(grid_cell(&row[2], cx))
+        .children(cells)
 }
 
-fn grid_cell(text: &str, cx: &mut Context<AppShell>) -> impl IntoElement {
+fn grid_cell(text: &str, cx: &mut Context<Workspace>) -> impl IntoElement {
     div()
         .w(relative(0.333))
         .h_full()

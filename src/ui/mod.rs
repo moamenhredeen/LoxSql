@@ -8,5 +8,5 @@ mod workspace;
 
 pub(crate) use bottom_panel::BottomPanel;
 pub(crate) use command_palette::CommandPalette;
-pub(crate) use database_panel::DatabasePanel;
-pub(crate) use workspace::Workspace;
+pub(crate) use database_panel::{DatabasePanel, DatabasePanelEvent};
+pub(crate) use workspace::{Workspace, WorkspaceEvent};

@@ -1,8 +1,7 @@
 use gpui::*;
-use gpui_component::{ActiveTheme, v_flex};
+use gpui_component::{ActiveTheme, h_flex, v_flex};
 
-use crate::app::AppShell;
-use crate::ui::shared::command_row;
+use crate::ui::shared::muted;
 
 #[derive(Default)]
 pub(crate) struct CommandPalette {
@@ -10,7 +9,13 @@ pub(crate) struct CommandPalette {
 }
 
 impl CommandPalette {
-    pub(crate) fn render(&self, cx: &mut Context<AppShell>) -> impl IntoElement {
+    pub(crate) fn set_open(&mut self, open: bool) {
+        self.open = open;
+    }
+}
+
+impl Render for CommandPalette {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .absolute()
             .top(px(64.))
@@ -41,4 +46,16 @@ impl CommandPalette {
                     .child(command_row("Open pg_stat_activity", "", cx)),
             )
     }
+}
+
+fn command_row<T>(label_text: &str, shortcut: &str, cx: &mut Context<T>) -> impl IntoElement {
+    h_flex()
+        .h(px(34.))
+        .px_3()
+        .gap_2()
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .child(div().text_sm().child(label_text.to_string()))
+        .child(div().flex_1())
+        .child(muted(shortcut.to_string()))
 }
