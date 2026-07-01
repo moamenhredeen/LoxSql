@@ -3,9 +3,9 @@ use gpui::*;
 use gpui_component::{ActiveTheme, Root, TitleBar, h_flex, v_flex};
 
 use crate::pg::{ConnectionProfile, PgCommand, PgEvent, PgRuntime, QueryStatus};
+use crate::ui::connection_picker::{ConnectionPicker, ConnectionPickerEvent};
 use crate::ui::{
     BottomPanel, CommandPalette, DatabasePanel, DatabasePanelEvent, Workspace, WorkspaceEvent,
-    connection_picker,
     shared::{label, muted},
 };
 
@@ -14,18 +14,19 @@ pub struct AppShell {
     pub database_panel: Entity<DatabasePanel>,
     pub command_palette: Entity<CommandPalette>,
     pub bottom_panel: Entity<BottomPanel>,
+    pub connection_picker: Entity<ConnectionPicker>,
     pub pg_runtime: Option<PgRuntime>,
-    pub connection_picker_open: bool,
     pub connected_profile: Option<String>,
     pub status_message: SharedString,
 }
 
 impl AppShell {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = cx.new(|_| Workspace::sample());
         let database_panel = cx.new(|_| DatabasePanel::sample());
         let command_palette = cx.new(|_| CommandPalette::default());
         let bottom_panel = cx.new(|_| BottomPanel::sample());
+        let connection_picker = cx.new(|cx| ConnectionPicker::new(window, cx));
 
         cx.subscribe(&workspace, |this, _, event, cx| {
             this.handle_workspace_event(event.clone(), cx);
@@ -33,6 +34,10 @@ impl AppShell {
         .detach();
         cx.subscribe(&database_panel, |this, _, event, cx| {
             this.handle_database_panel_event(event.clone(), cx);
+        })
+        .detach();
+        cx.subscribe(&connection_picker, |this, _, event, cx| {
+            this.handle_connection_picker_event(event.clone(), cx);
         })
         .detach();
 
@@ -61,8 +66,8 @@ impl AppShell {
             database_panel,
             command_palette,
             bottom_panel,
+            connection_picker,
             pg_runtime,
-            connection_picker_open: false,
             connected_profile: None,
             status_message: "Ready".into(),
         }
@@ -114,6 +119,10 @@ impl AppShell {
         match &event {
             PgEvent::Connected { profile_id } => {
                 self.connected_profile = Some(profile_id.clone());
+                self.connection_picker.update(cx, |connection_picker, cx| {
+                    connection_picker.set_selected_profile(Some(profile_id.clone()));
+                    cx.notify();
+                });
                 self.status_message = format!("Connected to {profile_id}").into();
             }
             PgEvent::CatalogNodeLoaded { nodes, .. } => {
@@ -202,40 +211,32 @@ impl AppShell {
         cx.notify();
     }
 
-    fn render_title_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> TitleBar {
+    fn handle_connection_picker_event(
+        &mut self,
+        event: ConnectionPickerEvent,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ConnectionPickerEvent::ConnectionSelected(profile) => {
+                let name = profile.name.clone();
+                self.connect(profile, cx);
+                self.status_message = format!("Selected connection {name}").into();
+            }
+        }
+        cx.notify();
+    }
+
+    fn render_title_bar(&self, _window: &mut Window, _cx: &mut Context<Self>) -> TitleBar {
         TitleBar::new().child(
             h_flex()
                 .size_full()
                 .px_2()
                 .gap_2()
                 .child(label("LoxQL").text_sm().font_weight(FontWeight::MEDIUM))
-                .child(self.render_connection_switcher(cx))
+                .child(self.connection_picker.clone())
                 .child(div().flex_1())
                 .child(muted("app_db / public")),
         )
-    }
-
-    fn render_connection_switcher(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
-            .id("connection-switcher")
-            .h(px(24.))
-            .px_2()
-            .gap_1()
-            .rounded(px(5.))
-            .text_sm()
-            .cursor_pointer()
-            .bg(cx.theme().secondary.opacity(0.45))
-            .hover(|el| el.bg(cx.theme().secondary_hover))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.connection_picker_open = !this.connection_picker_open;
-                cx.notify();
-            }))
-            .child(div().text_color(cx.theme().muted_foreground).child("●"))
-            .child(label(
-                self.connected_profile.as_deref().unwrap_or("local-dev"),
-            ))
-            .child(muted("⌄"))
     }
 
     fn render_main(&self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
@@ -259,9 +260,6 @@ impl Render for AppShell {
             .child(self.bottom_panel.clone())
             .when(self.command_palette.read(cx).open, |el| {
                 el.child(self.command_palette.clone())
-            })
-            .when(self.connection_picker_open, |el| {
-                el.child(connection_picker::render(cx))
             })
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_sheet_layer(window, cx))

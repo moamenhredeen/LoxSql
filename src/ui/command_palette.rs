@@ -8,12 +8,6 @@ pub(crate) struct CommandPalette {
     pub(crate) open: bool,
 }
 
-impl CommandPalette {
-    pub(crate) fn set_open(&mut self, open: bool) {
-        self.open = open;
-    }
-}
-
 impl Render for CommandPalette {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()

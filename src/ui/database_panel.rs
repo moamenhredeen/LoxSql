@@ -38,7 +38,6 @@ impl DatabasePanel {
     pub(crate) fn set_nodes(&mut self, nodes: Vec<CatalogNode>) {
         self.nodes = nodes;
     }
-
 }
 
 impl Render for DatabasePanel {
@@ -72,7 +71,11 @@ impl Render for DatabasePanel {
                     .px_3()
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .child(label("DATABASE").text_xs().text_color(cx.theme().muted_foreground))
+                    .child(
+                        label("DATABASE")
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground),
+                    )
                     .child(div().flex_1())
                     .child(panel_icon(cx)),
             )
@@ -88,11 +91,7 @@ impl Render for DatabasePanel {
                     .text_color(cx.theme().muted_foreground)
                     .child("Filter"),
             )
-            .child(
-                v_flex()
-                    .px_1()
-                    .children(rows),
-            )
+            .child(v_flex().px_1().children(rows))
     }
 }
 

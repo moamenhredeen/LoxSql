@@ -29,6 +29,7 @@ fn main() {
                     ..Default::default()
                 },
                 |window, cx| {
+                    // Theme::change(ThemeMode::Dark, Some(window), cx);
                     let view = cx.new(|cx| AppShell::new(window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },

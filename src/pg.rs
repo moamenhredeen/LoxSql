@@ -93,16 +93,24 @@ pub enum PgCommand {
 
 #[derive(Clone, Debug)]
 pub enum PgEvent {
-    Connected { profile_id: String },
+    Connected {
+        profile_id: String,
+    },
     Disconnected,
-    CatalogNodeLoaded { parent_id: String, nodes: Vec<CatalogNode> },
+    CatalogNodeLoaded {
+        parent_id: String,
+        nodes: Vec<CatalogNode>,
+    },
     QueryStarted,
     QueryResult {
         columns: Vec<ResultColumn>,
         rows: Vec<Vec<String>>,
         elapsed_ms: u128,
     },
-    QueryCompleted { rows: usize, elapsed_ms: u128 },
+    QueryCompleted {
+        rows: usize,
+        elapsed_ms: u128,
+    },
     QueryFailed(String),
     Notice(String),
     TransactionStatusChanged(String),
@@ -146,7 +154,13 @@ impl PgRuntime {
 
         runtime.spawn(pg_worker(commands_rx, events_tx));
 
-        Ok((Self { runtime, commands_tx }, events_rx))
+        Ok((
+            Self {
+                runtime,
+                commands_tx,
+            },
+            events_rx,
+        ))
     }
 
     pub fn spawn_command(&self, command: PgCommand) {
@@ -209,7 +223,9 @@ async fn pg_worker(
                             .map(|row| {
                                 row.columns()
                                     .iter()
-                                    .map(|column| ResultColumn::new(column.name(), column.type_().name()))
+                                    .map(|column| {
+                                        ResultColumn::new(column.name(), column.type_().name())
+                                    })
                                     .collect()
                             })
                             .unwrap_or_default();

@@ -62,10 +62,6 @@ impl Workspace {
     pub(crate) fn set_result(&mut self, columns: Vec<ResultColumn>, rows: Vec<Vec<String>>) {
         self.result = ResultSetState { columns, rows };
     }
-
-    pub(crate) fn transaction_status(&self) -> &str {
-        &self.session.transaction
-    }
 }
 
 impl Render for Workspace {
@@ -83,7 +79,6 @@ impl Render for Workspace {
                     .child(self.result.render(cx)),
             )
     }
-
 }
 
 impl Workspace {
