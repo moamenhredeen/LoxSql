@@ -2,36 +2,26 @@ use gpui::*;
 use gpui_component::{ActiveTheme, h_flex};
 
 use crate::pg::PgEvent;
+use crate::session::Session;
 
 pub(crate) struct BottomPanel {
-    events: Vec<PgEvent>,
+    session: Entity<Session>,
 }
 
 impl BottomPanel {
-    pub(crate) fn sample() -> Self {
-        Self {
-            events: vec![
-                PgEvent::Notice("NOTICE: relation users was scanned".into()),
-                PgEvent::QueryCompleted {
-                    rows: 42,
-                    elapsed_ms: 82,
-                },
-            ],
-        }
-    }
+    pub(crate) fn new(session: Entity<Session>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&session, |_, _, cx| cx.notify()).detach();
 
-    pub(crate) fn push_event(&mut self, event: PgEvent) {
-        self.events.push(event);
-        if self.events.len() > 64 {
-            self.events.remove(0);
-        }
+        Self { session }
     }
 }
 
 impl Render for BottomPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let last_event = self
-            .events
+            .session
+            .read(cx)
+            .event_log
             .last()
             .map(PgEvent::summary)
             .unwrap_or_else(|| "Ready".into());

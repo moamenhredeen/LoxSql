@@ -3,7 +3,8 @@ use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use crate::fonts::JETBRAINS_MONO;
-use crate::pg::{QueryStatus, ResultColumn, ResultSetState, SessionStatus, WorkspaceTab};
+use crate::pg::{ResultColumn, ResultSetState, WorkspaceTab};
+use crate::session::Session;
 use crate::ui::shared::muted;
 
 #[derive(Clone)]
@@ -18,14 +19,15 @@ pub(crate) struct Workspace {
     tabs: Vec<WorkspaceTab>,
     pub(crate) active_tab: usize,
     editor: SqlEditorState,
-    result: ResultSetState,
-    session: SessionStatus,
+    session: Entity<Session>,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
 
 impl Workspace {
-    pub(crate) fn sample() -> Self {
+    pub(crate) fn new(session: Entity<Session>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&session, |_, _, cx| cx.notify()).detach();
+
         Self {
             tabs: vec![
                 WorkspaceTab::Query {
@@ -38,34 +40,19 @@ impl Workspace {
             ],
             active_tab: 0,
             editor: SqlEditorState::sample(),
-            result: ResultSetState::empty(),
-            session: SessionStatus {
-                profile_id: Some("local-dev".into()),
-                database: Some("app_db".into()),
-                transaction: "idle".into(),
-                query: QueryStatus::Completed {
-                    rows: 42,
-                    elapsed_ms: 82,
-                },
-            },
+            session,
         }
     }
 
     pub(crate) fn current_sql(&self) -> String {
         self.editor.text.to_string()
     }
-
-    pub(crate) fn set_query_status(&mut self, status: QueryStatus) {
-        self.session.query = status;
-    }
-
-    pub(crate) fn set_result(&mut self, columns: Vec<ResultColumn>, rows: Vec<Vec<String>>) {
-        self.result = ResultSetState { columns, rows };
-    }
 }
 
 impl Render for Workspace {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let result = self.session.read(cx).result.clone();
+
         v_flex()
             .flex_1()
             .min_w(px(0.))
@@ -76,7 +63,7 @@ impl Render for Workspace {
                     .flex_1()
                     .min_h(px(0.))
                     .child(self.editor.render(cx))
-                    .child(self.result.render(cx)),
+                    .child(result.render(cx)),
             )
     }
 }
@@ -139,6 +126,8 @@ impl Workspace {
     }
 
     fn render_query_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let query_summary = self.session.read(cx).query_status.summary();
+
         h_flex()
             .h(px(32.))
             .px_3()
@@ -149,7 +138,7 @@ impl Workspace {
             .child(self.action_button("Stop", cx))
             .child(self.action_button("Explain", cx))
             .child(div().flex_1())
-            .child(muted(self.session.query.summary()))
+            .child(muted(query_summary))
     }
 
     fn action_button(&self, text: &str, cx: &mut Context<Self>) -> impl IntoElement {

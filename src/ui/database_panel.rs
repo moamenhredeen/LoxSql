@@ -3,6 +3,7 @@ use gpui::*;
 use gpui_component::{ActiveTheme, Icon, IconName, Sizable, h_flex, v_flex};
 
 use crate::pg::{CatalogNode, CatalogNodeKind};
+use crate::session::Session;
 use crate::ui::shared::label;
 
 #[derive(Clone)]
@@ -13,37 +14,26 @@ pub(crate) enum DatabasePanelEvent {
 
 pub(crate) struct DatabasePanel {
     pub(crate) selected_object: String,
-    nodes: Vec<CatalogNode>,
+    session: Entity<Session>,
 }
 
 impl EventEmitter<DatabasePanelEvent> for DatabasePanel {}
 
 impl DatabasePanel {
-    pub(crate) fn sample() -> Self {
+    pub(crate) fn new(session: Entity<Session>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&session, |_, _, cx| cx.notify()).detach();
+
         Self {
             selected_object: "users".into(),
-            nodes: vec![
-                CatalogNode::database("app_db"),
-                CatalogNode::schema("public"),
-                CatalogNode::folder("tables"),
-                CatalogNode::table("users"),
-                CatalogNode::table("orders"),
-                CatalogNode::folder("views"),
-                CatalogNode::folder("functions"),
-                CatalogNode::folder("extensions"),
-            ],
+            session,
         }
-    }
-
-    pub(crate) fn set_nodes(&mut self, nodes: Vec<CatalogNode>) {
-        self.nodes = nodes;
     }
 }
 
 impl Render for DatabasePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows = self
-            .nodes
+        let nodes = self.session.read(cx).catalog.clone();
+        let rows = nodes
             .iter()
             .enumerate()
             .map(|(ix, node)| {

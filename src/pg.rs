@@ -398,14 +398,6 @@ impl QueryStatus {
 }
 
 #[derive(Clone, Debug)]
-pub struct SessionStatus {
-    pub profile_id: Option<String>,
-    pub database: Option<String>,
-    pub transaction: String,
-    pub query: QueryStatus,
-}
-
-#[derive(Clone, Debug)]
 pub struct ResultColumn {
     pub name: String,
     pub pg_type: String,
