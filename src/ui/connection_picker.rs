@@ -40,8 +40,13 @@ impl Render for ConnectionPicker {
             .anchor(Anchor::TopLeft)
             .appearance(false)
             .open(self.open)
-            .on_open_change(cx.listener(|picker, open, _, cx| {
+            .on_open_change(cx.listener(|picker, open, window, cx| {
                 picker.open = *open;
+                if *open {
+                    picker
+                        .search_state
+                        .update(cx, |state, cx| state.focus(window, cx));
+                }
                 cx.notify();
             }))
             .trigger(self.render_trigger(cx))

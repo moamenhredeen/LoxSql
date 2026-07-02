@@ -3,9 +3,33 @@ use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use crate::fonts::JETBRAINS_MONO;
-use crate::pg::{ResultColumn, ResultSetState, WorkspaceTab};
+use crate::pg::{ResultColumn, ResultSetState};
 use crate::session::Session;
 use crate::ui::shared::muted;
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub(crate) enum WorkspaceTab {
+    Query { title: String },
+    ObjectPreview { title: String },
+    TableData { title: String },
+    Explain { title: String },
+    Activity,
+    Locks,
+}
+
+impl WorkspaceTab {
+    pub(crate) fn title(&self) -> &str {
+        match self {
+            WorkspaceTab::Query { title }
+            | WorkspaceTab::ObjectPreview { title }
+            | WorkspaceTab::TableData { title }
+            | WorkspaceTab::Explain { title } => title,
+            WorkspaceTab::Activity => "activity",
+            WorkspaceTab::Locks => "locks",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) enum WorkspaceEvent {
