@@ -2477,7 +2477,7 @@ dependencies = [
  "raw-window-handle",
  "regex",
  "resvg",
- "ropey 2.0.0-beta.1",
+ "ropey",
  "rust-i18n",
  "schemars",
  "serde",
@@ -2488,6 +2488,7 @@ dependencies = [
  "tracing",
  "tree-sitter",
  "tree-sitter-json",
+ "tree-sitter-sequel",
  "unicode-segmentation",
  "uuid",
  "windows 0.58.0",
@@ -3652,7 +3653,6 @@ dependencies = [
  "native-tls",
  "pg_query",
  "postgres-native-tls",
- "ropey 1.6.1",
  "serde",
  "serde_json",
  "tokio",
@@ -5651,16 +5651,6 @@ dependencies = [
 
 [[package]]
 name = "ropey"
-version = "1.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93411e420bcd1a75ddd1dc3caf18c23155eda2c090631a85af21ba19e97093b5"
-dependencies = [
- "smallvec",
- "str_indices",
-]
-
-[[package]]
-name = "ropey"
 version = "2.0.0-beta.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4045a00dc327d084a2bbf126976e14125b54f23bd30511d45b842eba76c52d74"
@@ -7173,6 +7163,16 @@ name = "tree-sitter-language"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-sequel"
+version = "0.3.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d198ad3c319c02e43c21efa1ec796b837afcb96ffaef1a40c1978fbdcec7d17"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "triomphe"

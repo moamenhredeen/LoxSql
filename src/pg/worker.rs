@@ -10,6 +10,7 @@ pub(crate) async fn pg_worker(
     events_tx: mpsc::UnboundedSender<PgEvent>,
 ) {
     let mut client: Option<Client> = None;
+    let mut current_database: Option<String> = None;
 
     while let Some(command) = commands_rx.recv().await {
         match command {
@@ -25,11 +26,22 @@ pub(crate) async fn pg_worker(
                             }
                         });
 
+                        let server_version = pg_client
+                            .query_one("show server_version", &[])
+                            .await
+                            .ok()
+                            .and_then(|row| row.try_get::<usize, String>(0).ok())
+                            .unwrap_or_else(|| "unknown".into());
+
                         client = Some(pg_client);
+                        current_database = Some(profile.database_name().to_string());
                         let _ = events_tx.send(PgEvent::Connected {
                             profile_id: profile.id.clone(),
+                            database: profile.database_name().to_string(),
+                            server_version,
                         });
-                        load_catalog(client.as_ref(), &events_tx).await;
+                        load_catalog(client.as_ref(), current_database.as_deref(), &events_tx)
+                            .await;
                     }
                     Err(error) => {
                         let _ = events_tx.send(PgEvent::QueryFailed(error.to_string()));
@@ -39,7 +51,7 @@ pub(crate) async fn pg_worker(
             PgCommand::Execute { sql } => {
                 let Some(pg_client) = client.as_ref() else {
                     let _ = events_tx.send(PgEvent::QueryFailed(
-                        "Not connected. Select local-dev first.".into(),
+                        "Not connected. Select a connection first.".into(),
                     ));
                     continue;
                 };
@@ -88,13 +100,17 @@ pub(crate) async fn pg_worker(
                 let _ = events_tx.send(PgEvent::Notice("cancel requested".into()));
             }
             PgCommand::LoadCatalogNode { .. } => {
-                load_catalog(client.as_ref(), &events_tx).await;
+                load_catalog(client.as_ref(), current_database.as_deref(), &events_tx).await;
             }
         }
     }
 }
 
-async fn load_catalog(client: Option<&Client>, events_tx: &mpsc::UnboundedSender<PgEvent>) {
+async fn load_catalog(
+    client: Option<&Client>,
+    database: Option<&str>,
+    events_tx: &mpsc::UnboundedSender<PgEvent>,
+) {
     let Some(client) = client else {
         return;
     };
@@ -103,21 +119,34 @@ async fn load_catalog(client: Option<&Client>, events_tx: &mpsc::UnboundedSender
         select schemaname, tablename \
         from pg_catalog.pg_tables \
         where schemaname not in ('pg_catalog', 'information_schema') \
-        order by schemaname, tablename \
-        limit 64";
+        order by schemaname, tablename";
 
     match client.query(sql, &[]).await {
         Ok(rows) => {
-            let mut nodes = vec![
-                CatalogNode::database("app_db"),
-                CatalogNode::schema("public"),
-                CatalogNode::folder("tables"),
-            ];
+            let mut nodes = vec![CatalogNode::database(database.unwrap_or("postgres"))];
 
-            nodes.extend(rows.iter().filter_map(|row| {
-                let table: Option<String> = row.try_get("tablename").ok();
-                table.map(CatalogNode::table)
-            }));
+            let mut current_schema: Option<String> = None;
+            for row in &rows {
+                let Ok(schema) = row.try_get::<_, String>("schemaname") else {
+                    continue;
+                };
+                let Ok(table) = row.try_get::<_, String>("tablename") else {
+                    continue;
+                };
+
+                if current_schema.as_deref() != Some(schema.as_str()) {
+                    nodes.push(CatalogNode::schema(schema.clone()));
+                    nodes.push(CatalogNode::folder("tables"));
+                    current_schema = Some(schema.clone());
+                }
+                nodes.push(CatalogNode::table(schema, table));
+            }
+
+            // A connected database with no user tables still shows its schemas.
+            if rows.is_empty() {
+                nodes.push(CatalogNode::schema("public"));
+                nodes.push(CatalogNode::folder("tables"));
+            }
 
             let _ = events_tx.send(PgEvent::CatalogNodeLoaded {
                 parent_id: "root".into(),

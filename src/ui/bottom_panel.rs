@@ -1,7 +1,7 @@
 use gpui::*;
 use gpui_component::{ActiveTheme, h_flex};
 
-use crate::pg::PgEvent;
+use crate::pg::{PgEvent, QueryStatus};
 use crate::session::Session;
 
 pub(crate) struct BottomPanel {
@@ -18,9 +18,22 @@ impl BottomPanel {
 
 impl Render for BottomPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let last_event = self
-            .session
-            .read(cx)
+        let session = self.session.read(cx);
+        let database = session.database.clone().unwrap_or_else(|| "—".into());
+        let server = session
+            .server_version
+            .clone()
+            .map(|version| format!("PostgreSQL {version}"))
+            .unwrap_or_else(|| "not connected".into());
+        let query = match &session.query_status {
+            QueryStatus::Idle => "idle".to_string(),
+            QueryStatus::Running => "running…".to_string(),
+            QueryStatus::Completed { rows, elapsed_ms } => {
+                format!("{rows} rows · {elapsed_ms} ms")
+            }
+            QueryStatus::Failed { message } => format!("error · {message}"),
+        };
+        let last_event = session
             .event_log
             .last()
             .map(PgEvent::summary)
@@ -33,11 +46,9 @@ impl Render for BottomPanel {
             .border_t_1()
             .border_color(cx.theme().border)
             .bg(cx.theme().background)
-            .child(status_item("app_db", cx))
-            .child(status_item("public", cx))
-            .child(status_item("PostgreSQL 17", cx))
-            .child(status_item("42 rows", cx))
-            .child(status_item("82 ms", cx))
+            .child(status_item(database, cx))
+            .child(status_item(server, cx))
+            .child(status_item(query, cx))
             .child(div().flex_1())
             .child(status_item(last_event, cx))
     }

@@ -21,12 +21,13 @@ pub struct AppShell {
 impl AppShell {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let session = cx.new(Session::new);
-        let workspace = cx.new(|cx| Workspace::new(session.clone(), cx));
+        let workspace = cx.new(|cx| Workspace::new(session.clone(), window, cx));
         let database_panel = cx.new(|cx| DatabasePanel::new(session.clone(), cx));
         let command_palette = cx.new(|_| CommandPalette::default());
         let bottom_panel = cx.new(|cx| BottomPanel::new(session.clone(), cx));
         let connection_picker = cx.new(|cx| ConnectionPicker::new(session.clone(), window, cx));
 
+        cx.observe(&session, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&workspace, |this, _, event, cx| {
             this.handle_workspace_event(event.clone(), cx);
         })
@@ -66,6 +67,9 @@ impl AppShell {
             DatabasePanelEvent::ObjectSelected(name) => {
                 session.set_status(format!("Selected {name}"), cx);
             }
+            DatabasePanelEvent::TableSelected { qualified_name } => {
+                session.preview_table(qualified_name, cx);
+            }
             DatabasePanelEvent::RefreshRequested => session.refresh_catalog(cx),
         });
     }
@@ -83,7 +87,13 @@ impl AppShell {
         });
     }
 
-    fn render_title_bar(&self, _window: &mut Window, _cx: &mut Context<Self>) -> TitleBar {
+    fn render_title_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> TitleBar {
+        let session = self.session.read(cx);
+        let connection_summary = match session.database.as_deref() {
+            Some(database) => format!("{database} · PostgreSQL"),
+            None => "not connected".into(),
+        };
+
         TitleBar::new().child(
             h_flex()
                 .size_full()
@@ -92,7 +102,7 @@ impl AppShell {
                 .child(label("LoxQL").text_sm().font_weight(FontWeight::MEDIUM))
                 .child(self.connection_picker.clone())
                 .child(div().flex_1())
-                .child(muted("app_db / public")),
+                .child(muted(connection_summary)),
         )
     }
 

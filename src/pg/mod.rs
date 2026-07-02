@@ -15,6 +15,7 @@ pub struct ConnectionProfile {
     pub port: u16,
     pub database: Option<String>,
     pub user: String,
+    pub password: Option<String>,
     pub ssl_mode: String,
 }
 
@@ -27,16 +28,27 @@ impl ConnectionProfile {
             port: 5432,
             database: Some("app_db".into()),
             user: "postgres".into(),
+            password: Some("postgres".into()),
             ssl_mode: "disable".into(),
         }
     }
 
+    pub fn database_name(&self) -> &str {
+        self.database.as_deref().unwrap_or("postgres")
+    }
+
     fn connection_string(&self) -> String {
-        let database = self.database.as_deref().unwrap_or("postgres");
-        format!(
-            "host={} port={} user={} password=postgres dbname={}",
-            self.host, self.port, self.user, database
-        )
+        let mut parts = format!(
+            "host={} port={} user={} dbname={}",
+            self.host,
+            self.port,
+            self.user,
+            self.database_name()
+        );
+        if let Some(password) = self.password.as_deref() {
+            parts.push_str(&format!(" password={password}"));
+        }
+        parts
     }
 }
 
@@ -52,6 +64,8 @@ pub enum CatalogNodeKind {
 pub struct CatalogNode {
     pub name: String,
     pub kind: CatalogNodeKind,
+    /// Schema this object belongs to (set for tables).
+    pub schema: Option<String>,
 }
 
 impl CatalogNode {
@@ -59,6 +73,7 @@ impl CatalogNode {
         Self {
             name: name.into(),
             kind: CatalogNodeKind::Database,
+            schema: None,
         }
     }
 
@@ -66,6 +81,7 @@ impl CatalogNode {
         Self {
             name: name.into(),
             kind: CatalogNodeKind::Schema,
+            schema: None,
         }
     }
 
@@ -73,13 +89,23 @@ impl CatalogNode {
         Self {
             name: name.into(),
             kind: CatalogNodeKind::Folder,
+            schema: None,
         }
     }
 
-    pub fn table(name: impl Into<String>) -> Self {
+    pub fn table(schema: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             kind: CatalogNodeKind::Table,
+            schema: Some(schema.into()),
+        }
+    }
+
+    /// Schema-qualified, quoted identifier for tables.
+    pub fn qualified_name(&self) -> String {
+        match self.schema.as_deref() {
+            Some(schema) => format!("\"{}\".\"{}\"", schema, self.name),
+            None => format!("\"{}\"", self.name),
         }
     }
 }
@@ -95,6 +121,8 @@ pub enum PgCommand {
 pub enum PgEvent {
     Connected {
         profile_id: String,
+        database: String,
+        server_version: String,
     },
     Disconnected,
     CatalogNodeLoaded {
@@ -119,7 +147,11 @@ pub enum PgEvent {
 impl PgEvent {
     pub fn summary(&self) -> String {
         match self {
-            PgEvent::Connected { profile_id } => format!("connected to {profile_id}"),
+            PgEvent::Connected {
+                profile_id,
+                database,
+                ..
+            } => format!("connected to {profile_id} ({database})"),
             PgEvent::Disconnected => "disconnected".into(),
             PgEvent::CatalogNodeLoaded { nodes, .. } => {
                 format!("loaded {} catalog objects", nodes.len())
@@ -174,7 +206,7 @@ impl ResultColumn {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ResultSetState {
     pub columns: Vec<ResultColumn>,
     pub rows: Vec<Vec<String>>,

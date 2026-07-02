@@ -9,6 +9,7 @@ use crate::ui::shared::label;
 #[derive(Clone)]
 pub(crate) enum DatabasePanelEvent {
     ObjectSelected(String),
+    TableSelected { qualified_name: String },
     RefreshRequested,
 }
 
@@ -24,7 +25,7 @@ impl DatabasePanel {
         cx.observe(&session, |_, _, cx| cx.notify()).detach();
 
         Self {
-            selected_object: "users".into(),
+            selected_object: String::new(),
             session,
         }
     }
@@ -33,16 +34,16 @@ impl DatabasePanel {
 impl Render for DatabasePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let nodes = self.session.read(cx).catalog.clone();
+        let connected = self.session.read(cx).is_connected();
         let rows = nodes
             .iter()
-            .enumerate()
-            .map(|(ix, node)| {
-                let (icon, indent) = tree_node_style(node, ix);
+            .map(|node| {
+                let (icon, indent) = tree_node_style(node);
                 tree_row(
                     icon,
-                    &node.name,
+                    node,
                     indent,
-                    node.name == self.selected_object,
+                    node.qualified_name() == self.selected_object,
                     cx,
                 )
                 .into_any_element()
@@ -81,43 +82,54 @@ impl Render for DatabasePanel {
                     .text_color(cx.theme().muted_foreground)
                     .child("Filter"),
             )
-            .child(v_flex().px_1().children(rows))
+            .when(!connected, |el| {
+                el.child(
+                    div()
+                        .p_3()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Not connected. Pick a connection in the title bar."),
+                )
+            })
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .px_1()
+                    .overflow_hidden()
+                    .children(rows),
+            )
     }
 }
 
 #[derive(Clone, Copy)]
 enum TreeIcon {
     OpenFolder,
-    ClosedFolder,
     File,
 }
 
-fn tree_node_style(node: &CatalogNode, ix: usize) -> (TreeIcon, usize) {
+fn tree_node_style(node: &CatalogNode) -> (TreeIcon, usize) {
     match node.kind {
         CatalogNodeKind::Database => (TreeIcon::OpenFolder, 0),
         CatalogNodeKind::Schema => (TreeIcon::OpenFolder, 1),
-        CatalogNodeKind::Folder => {
-            if node.name == "tables" {
-                (TreeIcon::OpenFolder, 2)
-            } else {
-                (TreeIcon::ClosedFolder, if ix < 3 { 2 } else { 1 })
-            }
-        }
+        CatalogNodeKind::Folder => (TreeIcon::OpenFolder, 2),
         CatalogNodeKind::Table => (TreeIcon::File, 3),
     }
 }
 
 fn tree_row(
     icon: TreeIcon,
-    text: &str,
+    node: &CatalogNode,
     indent: usize,
     selected: bool,
     cx: &mut Context<DatabasePanel>,
 ) -> impl IntoElement {
-    let object_name = text.to_string();
+    let display_name = node.name.clone();
+    let qualified_name = node.qualified_name();
+    let is_table = matches!(node.kind, CatalogNodeKind::Table);
 
     h_flex()
-        .id(format!("catalog-row-{object_name}"))
+        .id(SharedString::from(format!("catalog-row-{qualified_name}")))
         .h(px(22.))
         .gap_1()
         .mx_1()
@@ -126,20 +138,25 @@ fn tree_row(
         .cursor_pointer()
         .hover(|el| el.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.selected_object = object_name.clone();
-            cx.emit(DatabasePanelEvent::ObjectSelected(object_name.clone()));
+            this.selected_object = qualified_name.clone();
+            if is_table {
+                cx.emit(DatabasePanelEvent::TableSelected {
+                    qualified_name: qualified_name.clone(),
+                });
+            } else {
+                cx.emit(DatabasePanelEvent::ObjectSelected(qualified_name.clone()));
+            }
             cx.notify();
         }))
         .when(selected, |el| el.bg(cx.theme().secondary.opacity(0.85)))
         .when(!selected, |el| el.text_color(cx.theme().muted_foreground))
         .child(tree_icon(icon, cx))
-        .child(div().text_sm().child(text.to_string()))
+        .child(div().text_sm().child(display_name))
 }
 
 fn tree_icon(icon: TreeIcon, cx: &mut Context<DatabasePanel>) -> impl IntoElement {
     let icon_name = match icon {
         TreeIcon::OpenFolder => IconName::FolderOpen,
-        TreeIcon::ClosedFolder => IconName::FolderClosed,
         TreeIcon::File => IconName::File,
     };
 

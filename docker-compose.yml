@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres
+    image: postgres:18
     container_name: loxql-postgres
     environment:
       POSTGRES_DB: app_db
@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - loxql-postgres-data:/var/lib/postgresql/data
+      - loxql-postgres-data:/var/lib/postgresql
     networks:
       - lox-network
     healthcheck:

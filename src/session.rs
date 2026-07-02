@@ -10,6 +10,8 @@ use crate::pg::{
 pub struct Session {
     pg_runtime: Option<PgRuntime>,
     pub connected_profile: Option<String>,
+    pub database: Option<String>,
+    pub server_version: Option<String>,
     pub status_message: SharedString,
     pub query_status: QueryStatus,
     pub catalog: Vec<CatalogNode>,
@@ -41,12 +43,23 @@ impl Session {
         Self {
             pg_runtime,
             connected_profile: None,
+            database: None,
+            server_version: None,
             status_message: "Ready".into(),
             query_status: QueryStatus::Idle,
-            catalog: sample_catalog(),
+            catalog: Vec::new(),
             result: ResultSetState::empty(),
             event_log: Vec::new(),
         }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected_profile.is_some()
+    }
+
+    /// `select * limit 200` for a table selected in the catalog.
+    pub fn preview_table(&mut self, qualified_name: String, cx: &mut Context<Self>) {
+        self.run_query(format!("select * from {qualified_name} limit 200"), cx);
     }
 
     pub fn connect(&mut self, profile: ConnectionProfile, cx: &mut Context<Self>) {
@@ -101,8 +114,14 @@ impl Session {
 
     fn apply_pg_event(&mut self, event: PgEvent, cx: &mut Context<Self>) {
         match &event {
-            PgEvent::Connected { profile_id } => {
+            PgEvent::Connected {
+                profile_id,
+                database,
+                server_version,
+            } => {
                 self.connected_profile = Some(profile_id.clone());
+                self.database = Some(database.clone());
+                self.server_version = Some(server_version.clone());
                 self.status_message = format!("Connected to {profile_id}").into();
             }
             PgEvent::CatalogNodeLoaded { nodes, .. } => {
@@ -143,7 +162,14 @@ impl Session {
             PgEvent::Notice(message) => {
                 self.status_message = message.clone().into();
             }
-            PgEvent::Disconnected | PgEvent::TransactionStatusChanged(_) => {}
+            PgEvent::Disconnected => {
+                self.connected_profile = None;
+                self.database = None;
+                self.server_version = None;
+                self.catalog = Vec::new();
+                self.status_message = "Disconnected".into();
+            }
+            PgEvent::TransactionStatusChanged(_) => {}
         }
 
         self.event_log.push(event);
@@ -152,18 +178,4 @@ impl Session {
         }
         cx.notify();
     }
-}
-
-// Placeholder catalog shown before the first connection.
-fn sample_catalog() -> Vec<CatalogNode> {
-    vec![
-        CatalogNode::database("app_db"),
-        CatalogNode::schema("public"),
-        CatalogNode::folder("tables"),
-        CatalogNode::table("users"),
-        CatalogNode::table("orders"),
-        CatalogNode::folder("views"),
-        CatalogNode::folder("functions"),
-        CatalogNode::folder("extensions"),
-    ]
 }
